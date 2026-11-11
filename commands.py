@@ -10,6 +10,7 @@ USAGE = """/disko                     what's playing
 /disko pause | resume | stop
 /disko tracks [words]      search the library
 /disko launch <folder> [--window]   open disko on a music folder
+/disko launch --spotify <liked|playlist link> [--window]   ...or a Spotify playlist
 /disko quit                quit the disko this plugin launched"""
 
 ENERGY = {"up": "up", "down": "down", "hold": "hold", "lift": "up", "cool": "down"}
@@ -39,12 +40,16 @@ def run(raw_args: str) -> str:
         return render.tracks_text(client.tracks(" ".join(rest), 20))
     if verb == "launch":
         window = "--window" in rest
-        folder = " ".join(w for w in rest if w != "--window")
-        result = launcher.launch(folder, window)
+        rest = [w for w in rest if w != "--window"]
+        spotify = ""
+        if rest[:1] == ["--spotify"]:
+            spotify, rest = " ".join(rest[1:]) or "liked", []
+        result = launcher.launch(" ".join(rest), window, spotify=spotify)
         if "error" in result:
             return result["error"]
         if result.get("ready") is False:
-            return f"disko is starting on {result['folder']}; it analyses new music first. Try /disko in a moment."
+            what = f"Spotify {result['spotify']}" if "spotify" in result else result["folder"]
+            return f"disko is starting on {what}; it analyses new music first. Try /disko in a moment."
         return "disko is open.\n" + render.status_text(result)
     if verb == "quit":
         result = launcher.quit()
@@ -64,12 +69,16 @@ def _cli_setup(parser):
                         help="status (default), start [track], up, down, hold, next, pause, resume, stop, "
                              "tracks [words], launch FOLDER, quit")
     parser.add_argument("--window", action="store_true", help="with launch: show disko's window")
+    parser.add_argument("--spotify", metavar="PLAYLIST",
+                        help="with launch: a Spotify playlist (liked, a link or an id) instead of a folder")
 
 
 def _cli(args) -> int:
     words = list(getattr(args, "words", None) or [])
     if getattr(args, "window", False):
         words.append("--window")
+    if getattr(args, "spotify", None):
+        words += ["--spotify", args.spotify]
     text = _slash(shlex.join(words))
     print(text.replace("/disko", "hermes disko") if words[:1] == ["help"] else text)
     return 0

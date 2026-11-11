@@ -62,6 +62,9 @@ class PluginCase(unittest.TestCase):
         plugin.register(self.ctx)
         self.addCleanup(self.tmp.cleanup)
 
+    def slash(self, text):
+        return self.ctx.commands["disko"](text, session_id="s", platform="telegram")
+
     def disko(self, **kwargs):
         d = fake_disko.FakeDisko(self.folder, **kwargs)
         self.addCleanup(d.close)
@@ -189,9 +192,6 @@ class ControlTest(PluginCase):
 
 
 class CommandTest(PluginCase):
-    def slash(self, text):
-        return self.ctx.commands["disko"](text, session_id="s", platform="telegram")
-
     def test_slash_command(self):
         d = self.disko()
         self.assertIn("nothing playing yet", self.slash(""))
@@ -261,6 +261,8 @@ class LaunchTest(PluginCase):
         self.music.mkdir()
         os.environ["DISKO_CONTROL_DIR"] = str(self.folder)  # the launched disko inherits it
         self.addCleanup(os.environ.pop, "DISKO_CONTROL_DIR", None)
+        os.environ["FAKE_SPOTIFY_AUDIO"] = "on"
+        self.addCleanup(os.environ.pop, "FAKE_SPOTIFY_AUDIO", None)
         self.addCleanup(launcher.quit)
 
     def configure(self):
@@ -322,7 +324,7 @@ class LaunchTest(PluginCase):
     def test_folder_must_exist(self):
         self.configure()
         self.assertIn("isn't a folder", self.tool("disko_launch", folder=str(self.music / "nope"))["error"])
-        self.assertIn("which music folder", self.tool("disko_launch")["error"])
+        self.assertIn("which music", self.tool("disko_launch")["error"])
 
     def test_launch_play_quit(self):
         self.configure()
@@ -340,6 +342,41 @@ class LaunchTest(PluginCase):
         out = self.tool("disko_launch", folder=str(self.music))
         self.assertIn("exited right away", out["error"])
         self.assertIn("indexing failed", out["last_output"])
+
+    def test_spotify_playlist_names(self):
+        pid = "37i9dQZF1DXcBWIGoYBM5M"
+        for text, want in [("liked", "liked"), (" Liked Songs ", "liked"), (pid, pid),
+                           (f"spotify:playlist:{pid}", pid),
+                           (f"https://open.spotify.com/playlist/{pid}?si=abc", pid),
+                           (f"open.spotify.com/intl-de/playlist/{pid}", pid),
+                           ("", None), ("--playlist", None), (pid + "x", None), (f"spotify:album:{pid}", None),
+                           (f"https://open.spotify.com/album/{pid}", None), ("https://open.spotify.com/playlist/", None),
+                           ("liked; rm -rf ~", None), (f"https://evil.example/playlist/{pid}", None)]:
+            with self.subTest(text=text):
+                self.assertEqual(launcher.spotify_playlist(text), want)
+
+    def test_launch_on_spotify(self):
+        self.configure()
+        out = self.tool("disko_launch", spotify="https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M")
+        self.assertTrue(out.get("launched"), out)
+        self.assertEqual(out["spotify"], "37i9dQZF1DXcBWIGoYBM5M")
+        self.assertEqual(out["library"]["name"], "Spotify 37i9dQZF1DXcBWIGoYBM5M")
+        self.assertEqual(self.tool("disko_quit"), {"quit": True})
+
+    def test_spotify_refusals(self):
+        self.configure()
+        self.assertIn("not both", self.tool("disko_launch", folder=str(self.music), spotify="liked")["error"])
+        self.assertIn("isn't a Spotify playlist", self.tool("disko_launch", spotify="my chill mix")["error"])
+        os.environ["FAKE_SPOTIFY_AUDIO"] = "off"
+        error = self.tool("disko_launch", spotify="liked")["error"]
+        self.assertIn("Spotify audio is off", error)
+        self.assertIn("Only the user can turn it on", error)
+
+    def test_slash_launch_on_spotify(self):
+        self.configure()
+        self.assertIn("Spotify liked", self.slash("launch --spotify liked"))
+        self.assertIn("already running", self.slash("launch --spotify liked"))
+        self.assertEqual(self.slash("quit"), "disko has quit.")
 
     def test_quit_leaves_someone_elses_disko_alone(self):
         d = self.disko()

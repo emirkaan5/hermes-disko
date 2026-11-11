@@ -54,16 +54,22 @@ TOOLS = [
     ("disko_stop", lambda a: client.post("stop"), {
         "description": "Stop the set: playback stops and Kev stops picking. disko itself stays open.",
         "parameters": NO_ARGS}),
-    ("disko_launch", lambda a: launcher.launch(str(a.get("folder") or ""), bool(a.get("window"))), {
-        "description": "Open disko on this machine with a folder of music, when disko_status says it isn't running. "
-                       "A folder disko hasn't seen is analysed first (about half a second per track), so it may "
-                       "report ready=false: check disko_status again. This starts a background app that keeps "
-                       "running; it does not start the music (use disko_start). Confirm the folder with the user.",
+    ("disko_launch", lambda a: launcher.launch(str(a.get("folder") or ""), bool(a.get("window")),
+                                               spotify=str(a.get("spotify") or "")), {
+        "description": "Open disko on this machine with a folder of music or a Spotify playlist, when disko_status "
+                       "says it isn't running. Give exactly one of folder or spotify. disko analyses new music "
+                       "first (a folder: about half a second per track; Spotify: a 30 s preview of each track), so "
+                       "it may report ready=false: check disko_status again. This starts a background app that "
+                       "keeps running; it does not start the music (use disko_start). Confirm the music with the "
+                       "user. Spotify needs Spotify audio turned on in disko by the user; if the reply says it is "
+                       "off, pass that on and don't try to turn it on.",
         "parameters": {"type": "object", "properties": {
             "folder": {"type": "string", "description": "path to a folder of audio files, e.g. ~/Music/Friday"},
+            "spotify": {"type": "string",
+                        "description": "a Spotify playlist instead of a folder: `liked` for Liked Songs, a playlist "
+                                       "link (open.spotify.com/playlist/...) or its id"},
             "window": {"type": "boolean",
-                       "description": "true shows disko's decks on the Mac's screen; default false (no window)"}},
-            "required": ["folder"]}}),
+                       "description": "true shows disko's decks on the Mac's screen; default false (no window)"}}}}),
     ("disko_quit", lambda a: launcher.quit(), {
         "description": "Quit the disko that disko_launch started (the music stops). A disko the user opened "
                        "themselves is left alone.",

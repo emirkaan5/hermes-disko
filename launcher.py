@@ -1,19 +1,26 @@
-"""Start disko on a music folder, and quit the disko this plugin started.
+"""Start disko on a music folder or a Spotify playlist, and quit the disko this plugin started.
 
-The command is fixed: `<python> -m live --headless|--control --playlist <folder>`, run in the
-disko checkout. That checkout comes from the `disko_dir` setting when set, otherwise from the
-install record disko writes on every start (<control folder>/install.json: its folder and Python,
-not a credential). No shell is involved and the only argument that comes from the conversation is
-the folder, which must be an existing directory. disko keeps running after Hermes exits; its
+The command is fixed: `<python> -m live --headless|--control --playlist <folder>` (or
+`--spotify <playlist>`), run in the disko checkout. That checkout comes from the `disko_dir`
+setting when set, otherwise from the install record disko writes on every start (<control
+folder>/install.json: its folder and Python, not a credential). No shell is involved and the only
+argument that comes from the conversation is the folder, which must be an existing directory, or
+the Spotify playlist, which must be `liked` or a 22-character Spotify id (a spotify: URI or an
+open.spotify.com link is reduced to its id here). disko keeps running after Hermes exits; its
 output goes to a log file in the plugin's data folder.
+
+Spotify audio is the listener's own switch in disko (`python -m live.sources.spotify audio on`).
+The plugin never turns it on; when it is off, disko refuses to start and the launch says so.
 """
 import json
 import os
+import re
 import signal
 import subprocess
 import tempfile
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
 from . import client
 
@@ -22,6 +29,8 @@ INSTALL_NAME, INSTALL_VERSION = "install.json", 1
 NOT_FOUND = ("the plugin can't find disko on this machine. Open disko once here (it then registers itself), "
              "or set `disko_dir` in the disko plugin's settings to your disko checkout (the folder that "
              "contains live/).")
+SPOTIFY_ID = re.compile(r"[0-9A-Za-z]{22}")
+SPOTIFY_AUDIO_OFF = "Spotify audio is off"
 _started: subprocess.Popen | None = None
 
 
@@ -50,7 +59,20 @@ def _install_record() -> tuple[Path, Path] | None:
         return None
 
 
-def command(folder: Path, window: bool) -> tuple[list[str], Path] | str:
+def spotify_playlist(text: str) -> str | None:
+    """`liked` or a bare playlist id out of what the user said; None if it is neither."""
+    text = (text or "").strip()
+    if text.lower() in ("liked", "liked songs"):
+        return "liked"
+    if text.startswith("spotify:playlist:"):
+        text = text.removeprefix("spotify:playlist:")
+    elif "open.spotify.com" in text:
+        parts = [p for p in urlparse(text if "://" in text else "https://" + text).path.split("/") if p]
+        text = parts[parts.index("playlist") + 1] if "playlist" in parts[:-1] else ""
+    return text if SPOTIFY_ID.fullmatch(text) else None
+
+
+def command(source: list[str], window: bool) -> tuple[list[str], Path] | str:
     """The argv and working directory, or a sentence saying what is missing."""
     override = client.setting("disko_dir", "DISKO_DIR")
     if override:  # the user's explicit choice wins over what disko registered
@@ -69,21 +91,31 @@ def command(folder: Path, window: bool) -> tuple[list[str], Path] | str:
     if not python.exists():
         return f"disko's Python isn't at {python}; set `disko_python` in the plugin's settings"
     mode = "--control" if window else "--headless"
-    return [str(python), "-m", "live", mode, "--playlist", str(folder)], root
+    return [str(python), "-m", "live", mode, *source], root
 
 
-def launch(folder: str, window: bool = False, wait_s: float = WAIT_S) -> dict:
+def launch(folder: str = "", window: bool = False, wait_s: float = WAIT_S, spotify: str = "") -> dict:
     global _started
     if client.setting("control_url", "DISKO_CONTROL_URL"):
         return {"error": "this plugin is pointed at a remote disko (control_url); start it on that machine"}
     if "error" not in client.status(timeout=3):
-        return {"error": "disko is already running; use disko_status, or disko_quit first to change folder"}
-    if not folder:
-        return {"error": "which music folder? Give the path to a folder of audio files."}
-    path = Path(folder).expanduser()
-    if not path.is_dir():
-        return {"error": f"{path} isn't a folder on this machine"}
-    built = command(path.resolve(), window)
+        return {"error": "disko is already running; use disko_status, or disko_quit first to change the music"}
+    if folder and spotify:
+        return {"error": "give a music folder or a Spotify playlist, not both"}
+    if spotify:
+        playlist = spotify_playlist(spotify)
+        if playlist is None:
+            return {"error": f"{spotify!r} isn't a Spotify playlist: give `liked` (Liked Songs), a playlist "
+                             "link or its id"}
+        source, opened = ["--spotify", playlist], {"spotify": playlist}
+    elif folder:
+        path = Path(folder).expanduser()
+        if not path.is_dir():
+            return {"error": f"{path} isn't a folder on this machine"}
+        source, opened = ["--playlist", str(path.resolve())], {"folder": str(path)}
+    else:
+        return {"error": "which music? Give the path to a folder of audio files, or a Spotify playlist."}
+    built = command(source, window)
     if isinstance(built, str):
         return {"error": built}
     argv, cwd = built
@@ -97,15 +129,24 @@ def launch(folder: str, window: bool = False, wait_s: float = WAIT_S) -> dict:
     deadline = time.monotonic() + wait_s
     while time.monotonic() < deadline:
         if _started.poll() is not None:
+            tail = _tail(log)
+            if SPOTIFY_AUDIO_OFF in tail:
+                return {"error": "Spotify audio is off in disko, so it can't play Spotify tracks. Only the "
+                                 "user can turn it on, on the Mac: on the Spotify page of disko's welcome "
+                                 "screen, or with `.venv-live/bin/python -m live.sources.spotify audio on` in "
+                                 "the disko folder. Both explain what it means first.", "log": str(log)}
             return {"error": f"disko exited right away (code {_started.returncode})", "log": str(log),
-                    "last_output": _tail(log)}
+                    "last_output": tail}
         status = client.status(timeout=3)
         if "error" not in status:
-            return {"launched": True, "folder": str(path), "window": window, **status}
+            return {"launched": True, **opened, "window": window, **status}
         time.sleep(0.5)
-    return {"launched": True, "ready": False, "folder": str(path), "window": window, "log": str(log),
-            "note": "disko is still getting ready (a new folder is analysed first, about half a second per "
-                    "track). Check disko_status again shortly.", "last_output": _tail(log)}
+    getting_ready = ("disko is fetching a 30 s preview of each track in the Spotify playlist to learn its "
+                     "tempo and key" if spotify else
+                     "a new folder is analysed first, about half a second per track")
+    return {"launched": True, "ready": False, **opened, "window": window, "log": str(log),
+            "note": f"disko is still getting ready ({getting_ready}). Check disko_status again shortly.",
+            "last_output": _tail(log)}
 
 
 def quit() -> dict:

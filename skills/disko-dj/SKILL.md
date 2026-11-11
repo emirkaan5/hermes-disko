@@ -1,7 +1,7 @@
 ---
 name: disko-dj
 description: Run and steer a disko AI DJ set on the user's Mac (launch, start, status, energy, pick again, pause, stop)
-version: 0.3.0
+version: 0.4.0
 license: AGPL-3.0
 platforms: [macos]
 metadata:
@@ -21,7 +21,8 @@ track), pause or stop a DJ set, or asks what is playing.
 
 ## Quick Reference
 - `disko_status`: state, now playing, what's queued next, energy, sources and their permissions, playback location
-- `disko_launch(folder, window?)`: open disko on a music folder when it isn't running
+- `disko_launch(folder | spotify, window?)`: open disko on a music folder or a Spotify playlist
+  (`liked`, a playlist link or its id) when it isn't running
 - `disko_find_tracks(query)`: playable tracks, to choose an opener
 - `disko_start(track?)`: start the set (Kev opens on the calmest track if none is given)
 - `disko_set_energy("down" | "hold" | "up")`, `disko_pick_again()`
@@ -29,8 +30,8 @@ track), pause or stop a DJ set, or asks what is playing.
 - The user can do all of this themselves with `/disko` (try `/disko help`).
 
 ## Procedure
-1. Call `disko_status` first. If disko isn't running, ask which music folder to use and call
-   `disko_launch`. If it answers `ready: false`, disko is analysing the folder: wait and check
+1. Call `disko_status` first. If disko isn't running, ask which music to use (a folder, or a
+   Spotify playlist such as their Liked Songs) and call `disko_launch`. If it answers `ready: false`, disko is analysing the folder: wait and check
    `disko_status` again rather than launching twice.
 2. Before `disko_start`, confirm with the user. Tell them which library and sources it will use
    (`sources`, with what disko is permitted to do with each) and that it plays on that Mac
@@ -48,6 +49,8 @@ track), pause or stop a DJ set, or asks what is playing.
 - `disko_launch` finds disko by itself once the user has opened disko on this Mac. If it says it
   can't find disko, tell the user to open disko once (or set `disko_dir` in the plugin's
   settings); don't guess paths.
+- Spotify audio is the user's own switch in disko. If `disko_launch` says it is off, tell them
+  how to turn it on (the reply says) and stop there; never run that command yourself.
 - If Hermes runs in a container, `localhost` is the container: disko must be started with
   `--control-tcp HOST:PORT`, and the plugin's control URL and token set.
 

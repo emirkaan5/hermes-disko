@@ -2,7 +2,7 @@
 
 Run an AI DJ set on your Mac from any Hermes chat.
 
-[disko](https://github.com/emirkaan5/disko) is a desktop AI DJ. You give it a folder of music;
+[disko](https://github.com/emirkaan5/disko) is a desktop AI DJ. You give it a folder of music or a Spotify playlist;
 its model, Kev, picks each next track, plans the transition (bass swap, filter sweep, echo out…)
 and beat-matches it, and the mix plays out loud on your Mac. This plugin is the remote control:
 text Hermes from the couch, from Telegram, from your phone, and the set follows.
@@ -21,7 +21,7 @@ hermes  Energy is on lift. Kev dropped the queued track and is picking a bigger 
 | Surface | What you get |
 |---|---|
 | **10 tools** (`disko` toolset) | `disko_status`, `disko_find_tracks`, `disko_start`, `disko_set_energy`, `disko_pick_again`, `disko_pause`, `disko_resume`, `disko_stop`, `disko_launch`, `disko_quit` |
-| **`/disko` slash command** | The same controls with no model turn, so they answer instantly in any chat app: `/disko`, `/disko start night drive`, `/disko up`, `/disko next`, `/disko pause`, `/disko tracks aya`, `/disko launch ~/Music/Friday` |
+| **`/disko` slash command** | The same controls with no model turn, so they answer instantly in any chat app: `/disko`, `/disko start night drive`, `/disko up`, `/disko next`, `/disko pause`, `/disko tracks aya`, `/disko launch ~/Music/Friday`, `/disko launch --spotify liked` |
 | **`hermes disko` CLI** | The same again from a terminal: `hermes disko`, `hermes disko up` |
 | **Now-playing context** (`pre_llm_call` hook) | While a set is running, each message carries one line with the current track, the next one and the energy, so "what's this?" needs no tool call. Silent when nothing is playing. Turn it off with `now_playing_context: false`. |
 | **`disko:disko-dj` skill** | The procedure and the pitfalls: confirm before starting, report only what disko says, don't invent reasons for Kev's picks. |
@@ -80,12 +80,18 @@ Everything the plugin does, so you can decide before installing:
   address, which you chose, and nowhere else. That link is plain HTTP protected by the token;
   keep it on a network you trust.
 - **A background process, when you ask.** `disko_launch` and `/disko launch` start disko with a
-  fixed command, `<python> -m live --headless --playlist <folder>` (`--control` with a
-  window), in the disko folder from `install.json` (or `disko_dir`/`disko_python` if you set
-  them). No shell is used, and the folder must be an existing directory.
+  fixed command, `<python> -m live --headless --playlist <folder>` or `--spotify <playlist>`
+  (`--control` with a window), in the disko folder from `install.json` (or
+  `disko_dir`/`disko_python` if you set them). No shell is used. The folder must be an existing
+  directory; the Spotify playlist must be `liked` or a Spotify playlist id (a link is reduced to
+  its id), so nothing else from the conversation reaches the command.
   disko keeps running after Hermes exits, and writes its output to
   `~/.hermes/plugin-data/disko/disko.log`. `disko_quit` ends only a disko this plugin started.
   disko itself reads the music folder and saves its analysis in a `disko/` subfolder there.
+- **Spotify, only if you use it.** With a Spotify playlist, disko itself (not the plugin) uses
+  your own disko Spotify sign-in to read the playlist and fetch the tracks' audio. disko refuses
+  unless you turned Spotify audio on in disko yourself; the plugin never turns it on, and the
+  skill tells the agent not to.
 - **Sound.** `disko_start` plays music out loud on the Mac running disko. The skill tells the
   agent to confirm with you first.
 - **Context.** While a set is running, the hook adds one line (track names, BPM, key, energy)
@@ -99,8 +105,8 @@ Everything the plugin does, so you can decide before installing:
 - It steers the *next* track. There is no way to cut the current track short.
 - Kev's reasons for a pick aren't exposed, so the agent can tell you what is playing, not why.
 - `disko_quit` only knows about a disko launched since Hermes last started.
-- A folder disko hasn't seen is analysed before it opens (about half a second per track), so
-  the first launch on a big folder takes a while; `disko_launch` says so and you check back.
+- A folder disko hasn't seen is analysed before it opens (about half a second per track), and a
+  Spotify playlist needs a 30 s preview of each track first, so the first launch takes a while; `disko_launch` says so and you check back.
 
 ## Development
 

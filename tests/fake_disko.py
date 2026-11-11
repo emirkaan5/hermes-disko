@@ -144,13 +144,20 @@ def write_install(folder, root, python, version=1):
 
 
 def main(argv):
-    """`python -m live --headless --playlist FOLDER`, as the launcher runs it."""
-    folder = Path(argv[argv.index("--playlist") + 1])
-    if (folder / "broken").exists():
-        print("indexing failed: no audio here", file=sys.stderr)
-        return 1
+    """`python -m live --headless --playlist FOLDER` (or `--spotify PLAYLIST`), as the launcher runs it."""
+    if "--spotify" in argv:
+        if os.environ.get("FAKE_SPOTIFY_AUDIO") != "on":  # what disko says when the listener hasn't turned it on
+            print("spotify: Spotify audio is off. Turn it on first and read what it means:", file=sys.stderr)
+            return 1
+        name = "Spotify " + argv[argv.index("--spotify") + 1]
+    else:
+        folder = Path(argv[argv.index("--playlist") + 1])
+        if (folder / "broken").exists():
+            print("indexing failed: no audio here", file=sys.stderr)
+            return 1
+        name = folder.name
     write_install(os.environ["DISKO_CONTROL_DIR"], Path.cwd(), sys.executable)  # disko registers on every start
-    disko = FakeDisko(os.environ["DISKO_CONTROL_DIR"], name=folder.name)
+    disko = FakeDisko(os.environ["DISKO_CONTROL_DIR"], name=name)
     done = threading.Event()
     signal.signal(signal.SIGTERM, lambda *a: done.set())
     done.wait()
