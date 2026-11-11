@@ -56,7 +56,7 @@ class PluginCase(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory(prefix="dk")
         self.folder = Path(self.tmp.name) / "c"
         self.settings = {"control_dir": str(self.folder)}
-        for name in ("DISKO_CONTROL_URL", "DISKO_CONTROL_TOKEN", "DISKO_CONTROL_DIR", "DISKO_DIR"):
+        for name in ("DISKO_CONTROL_URL", "DISKO_CONTROL_TOKEN", "DISKO_CONTROL_DIR", "DISKO_DIR", "DISKO_PYTHON"):
             os.environ.pop(name, None)
         self.ctx = Ctx(self.settings)
         plugin.register(self.ctx)
@@ -127,11 +127,44 @@ class ControlTest(PluginCase):
         self.assertEqual(self.tool("disko_find_tracks", limit="lots")["total"], 3)
         self.assertEqual(json.loads(self.ctx.tools["disko_status"][1](None))["state"], "start")
 
-    def test_stale_token_is_an_error(self):
+    def test_local_socket_needs_no_token(self):
         d = self.disko()
-        (self.folder / "control.token").write_text("stale")
-        self.assertIn("token", self.tool("disko_status")["error"])
+        self.assertFalse((self.folder / "control.token").exists())
+        self.assertEqual(self.tool("disko_start")["starting"]["title"], "Morning Glass")
+        self.assertEqual(d.seen_auth, [None])  # no Authorization header on the socket
+
+    def test_a_token_file_is_never_opened(self):
+        import builtins
+        import io
+        from unittest import mock
+        self.disko()
+        (self.folder / "control.token").mkdir()  # reading it would fail, and so would the request
+        opened = []
+
+        def guard(real):
+            def wrapped(file, *args, **kwargs):
+                if isinstance(file, (str, bytes, os.PathLike)) and "control.token" in os.fsdecode(file):
+                    opened.append(file)
+                    raise PermissionError("the plugin must not open control.token")
+                return real(file, *args, **kwargs)
+            return wrapped
+
+        with mock.patch.object(builtins, "open", guard(builtins.open)), \
+                mock.patch.object(io, "open", guard(io.open)), mock.patch.object(os, "open", guard(os.open)):
+            self.assertEqual(self.tool("disko_status")["state"], "start")
+            self.assertEqual(self.tool("disko_start", track="peak")["starting"]["title"], "Peak Hour")
+            hook = self.ctx.hooks["pre_llm_call"](session_id="s", user_message="?", is_first_turn=False)
+            self.assertIn("Peak Hour", hook["context"])
+        self.assertEqual(opened, [])
+
+    def test_older_disko_that_wants_a_token(self):
+        d = self.disko(legacy=True)
+        error = self.tool("disko_status")["error"]
+        self.assertIn("older version", error)
+        self.assertIn("update disko", error)
+        self.assertIn("older version", self.ctx.commands["disko"](""))
         self.assertEqual(d.set.state, "start")
+        self.assertEqual(set(d.seen_auth), {None})  # the plugin still sends no token
 
     def test_dead_socket_reads_as_not_running(self):
         d = self.disko()
@@ -144,9 +177,15 @@ class ControlTest(PluginCase):
         self.addCleanup(d.close)
         self.settings["control_url"] = d.url
         self.assertIn("token isn't", self.tool("disko_status")["error"])
-        os.environ["DISKO_CONTROL_TOKEN"] = d.token
+        self.assertEqual(d.seen_auth, [])  # nothing sent without a token
+        os.environ["DISKO_CONTROL_TOKEN"] = "wrong"
         self.addCleanup(os.environ.pop, "DISKO_CONTROL_TOKEN", None)
+        error = self.tool("disko_status")["error"]
+        self.assertIn("token", error)
+        self.assertNotIn("older version", error)  # that hint is for the local socket only
+        os.environ["DISKO_CONTROL_TOKEN"] = d.token
         self.assertEqual(self.tool("disko_start")["starting"]["title"], "Morning Glass")
+        self.assertEqual(d.seen_auth[-1], f"Bearer {d.token}")
 
 
 class CommandTest(PluginCase):
@@ -227,10 +266,58 @@ class LaunchTest(PluginCase):
     def configure(self):
         self.settings.update(disko_dir=str(self.checkout), disko_python=sys.executable)
 
+    def launch_error(self):
+        return self.tool("disko_launch", folder=str(self.music))["error"]
+
+    def assertNotFound(self, error):
+        self.assertIn("Open disko once", error)
+        self.assertIn("disko_dir", error)
+
     def test_needs_to_know_where_disko_is(self):
-        self.assertIn("disko_dir", self.tool("disko_launch", folder=str(self.music))["error"])
+        self.assertNotFound(self.launch_error())  # no settings, no install record
         self.settings["disko_dir"] = str(self.music)
-        self.assertIn("isn't a disko checkout", self.tool("disko_launch", folder=str(self.music))["error"])
+        self.assertIn("isn't a disko checkout", self.launch_error())
+
+    def test_finds_disko_from_its_install_record(self):
+        fake_disko.write_install(self.folder, self.checkout, sys.executable)
+        out = self.tool("disko_launch", folder=str(self.music))
+        self.assertTrue(out.get("launched"), out)
+        self.assertEqual(out["library"]["name"], "Friday")
+
+    def test_disko_dir_overrides_the_install_record(self):
+        other = Path(self.tmp.name) / "old"
+        (other / "live").mkdir(parents=True)
+        (other / "live" / "__main__.py").write_text("import sys\nsys.exit('the install record was used')\n")
+        fake_disko.write_install(self.folder, other, sys.executable)
+        self.configure()
+        out = self.tool("disko_launch", folder=str(self.music))
+        self.assertTrue(out.get("launched"), out)
+        self.tool("disko_quit")
+        self.settings["disko_dir"] = str(self.music)  # a wrong override is an error, not a fallback
+        self.assertIn("isn't a disko checkout", self.launch_error())
+
+    def test_disko_python_setting_wins_over_the_record(self):
+        fake_disko.write_install(self.folder, self.checkout, Path(self.tmp.name) / "gone" / "python")
+        self.assertNotFound(self.launch_error())  # the record's Python has moved
+        self.settings["disko_python"] = sys.executable
+        self.assertTrue(self.tool("disko_launch", folder=str(self.music)).get("launched"))
+
+    def test_a_bad_install_record_reads_as_not_found(self):
+        record = self.folder / "install.json"
+        good = {"version": 1, "root": str(self.checkout), "python": sys.executable}
+        bad = ["{not json", "[]", "null", json.dumps({**good, "version": 2}), json.dumps({**good, "version": "1"}),
+               json.dumps({**good, "version": True}), json.dumps({k: v for k, v in good.items() if k != "version"}),
+               json.dumps({**good, "root": 42}), json.dumps({**good, "python": None}),
+               json.dumps({**good, "root": str(self.music)}), json.dumps({**good, "root": "relative/disko"}),
+               json.dumps({**good, "root": str(Path(self.tmp.name) / "missing")})]
+        self.folder.mkdir(parents=True, exist_ok=True)
+        for text in bad:
+            record.write_text(text)
+            with self.subTest(record=text):
+                self.assertNotFound(self.launch_error())
+        record.unlink()
+        record.mkdir()  # unreadable
+        self.assertNotFound(self.launch_error())
 
     def test_folder_must_exist(self):
         self.configure()

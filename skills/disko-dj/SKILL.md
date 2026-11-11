@@ -1,7 +1,7 @@
 ---
 name: disko-dj
 description: Run and steer a disko AI DJ set on the user's Mac (launch, start, status, energy, pick again, pause, stop)
-version: 0.2.0
+version: 0.3.0
 license: AGPL-3.0
 platforms: [macos]
 metadata:
@@ -45,8 +45,9 @@ track), pause or stop a DJ set, or asks what is playing.
   status is disko's own message; quote it.
 - An `error` from a tool means nothing changed. Don't retry a refused command in a loop.
 - `disko_pick_again` changes the *next* track. There is no way to cut the current track short.
-- `disko_launch` needs `disko_dir` in the plugin's settings. If it says so, tell the user;
-  don't guess paths.
+- `disko_launch` finds disko by itself once the user has opened disko on this Mac. If it says it
+  can't find disko, tell the user to open disko once (or set `disko_dir` in the plugin's
+  settings); don't guess paths.
 - If Hermes runs in a container, `localhost` is the container: disko must be started with
   `--control-tcp HOST:PORT`, and the plugin's control URL and token set.
 

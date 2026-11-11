@@ -1,10 +1,13 @@
 """Start disko on a music folder, and quit the disko this plugin started.
 
 The command is fixed: `<python> -m live --headless|--control --playlist <folder>`, run in the
-disko checkout from the plugin's settings. No shell is involved and the only argument that comes
-from the conversation is the folder, which must be an existing directory. disko keeps running
-after Hermes exits; its output goes to a log file in the plugin's data folder.
+disko checkout. That checkout comes from the `disko_dir` setting when set, otherwise from the
+install record disko writes on every start (<control folder>/install.json: its folder and Python,
+not a credential). No shell is involved and the only argument that comes from the conversation is
+the folder, which must be an existing directory. disko keeps running after Hermes exits; its
+output goes to a log file in the plugin's data folder.
 """
+import json
 import os
 import signal
 import subprocess
@@ -15,6 +18,10 @@ from pathlib import Path
 from . import client
 
 WAIT_S = 20.0
+INSTALL_NAME, INSTALL_VERSION = "install.json", 1
+NOT_FOUND = ("the plugin can't find disko on this machine. Open disko once here (it then registers itself), "
+             "or set `disko_dir` in the disko plugin's settings to your disko checkout (the folder that "
+             "contains live/).")
 _started: subprocess.Popen | None = None
 
 
@@ -26,16 +33,39 @@ def _log_path() -> Path:
         return Path(tempfile.gettempdir()) / "hermes-disko.log"
 
 
+def _install_record() -> tuple[Path, Path] | None:
+    """(root, python) from disko's install.json; None for anything missing, odd or from another version."""
+    try:
+        record = json.loads((client.folder() / INSTALL_NAME).read_text())
+        version, root, python = record["version"], record["root"], record["python"]
+        if type(version) is not int or version != INSTALL_VERSION:
+            return None
+        if not (isinstance(root, str) and isinstance(python, str)):
+            return None
+        root, python = Path(root), Path(python)
+        if not (root.is_absolute() and python.is_absolute()):
+            return None
+        return root, python
+    except Exception:
+        return None
+
+
 def command(folder: Path, window: bool) -> tuple[list[str], Path] | str:
     """The argv and working directory, or a sentence saying what is missing."""
-    root = client.setting("disko_dir", "DISKO_DIR")
-    if not root:
-        return ("the plugin doesn't know where disko is installed. Set `disko_dir` in the disko plugin's "
-                "settings to your disko checkout (the folder that contains live/).")
-    root = Path(root).expanduser()
-    if not (root / "live" / "__main__.py").exists():
-        return f"{root} isn't a disko checkout (no live/__main__.py)"
-    python = Path(client.setting("disko_python", "DISKO_PYTHON", root / ".venv-live" / "bin" / "python")).expanduser()
+    override = client.setting("disko_dir", "DISKO_DIR")
+    if override:  # the user's explicit choice wins over what disko registered
+        root = Path(override).expanduser()
+        if not (root / "live" / "__main__.py").exists():
+            return f"{root} isn't a disko checkout (no live/__main__.py); fix `disko_dir` in the plugin's settings"
+        python = root / ".venv-live" / "bin" / "python"
+    else:
+        found = _install_record()
+        if found is None or not (found[0] / "live" / "__main__.py").exists():
+            return NOT_FOUND
+        root, python = found
+        if not (client.setting("disko_python", "DISKO_PYTHON") or python.exists()):
+            return NOT_FOUND  # a record left by a disko that has since moved
+    python = Path(client.setting("disko_python", "DISKO_PYTHON", python)).expanduser()
     if not python.exists():
         return f"disko's Python isn't at {python}; set `disko_python` in the plugin's settings"
     mode = "--control" if window else "--headless"

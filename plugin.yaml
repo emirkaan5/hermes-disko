@@ -1,5 +1,5 @@
 name: disko
-version: 0.2.0
+version: 0.3.0
 manifest_version: 2
 description: "Run and steer a disko AI DJ set on your Mac from any Hermes chat: launch it on a music folder, start, change energy, re-pick, pause, stop, and always know what's playing."
 author: emirkaan5
@@ -25,12 +25,12 @@ config_schema:
     type: str
     default: ""
     label: disko folder
-    description: "Path to your disko checkout (the folder with live/). Needed only for disko_launch."
+    description: "Optional override: your disko checkout (the folder with live/), for disko_launch. Leave empty: disko is found automatically once it has been opened on this machine."
   disko_python:
     type: str
     default: ""
     label: disko Python
-    description: "Python that runs disko. Default: <disko folder>/.venv-live/bin/python."
+    description: "Optional override: the Python that runs disko. Default: the one disko registered, or <disko folder>/.venv-live/bin/python when disko folder is set."
   now_playing_context:
     type: bool
     default: true
@@ -40,7 +40,7 @@ config_schema:
     type: str
     default: ""
     label: Control folder
-    description: "Folder holding disko's control socket. Default: ~/.disko."
+    description: "Folder holding disko's control socket and install record. Default: ~/.disko."
   control_url:
     type: str
     default: ""

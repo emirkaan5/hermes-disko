@@ -1,5 +1,6 @@
 """Talks to a running disko over its local control interface: HTTP+JSON on a Unix socket in
-~/.disko, every request carrying the per-run token disko writes beside the socket.
+~/.disko. disko checks that whoever connects to that socket is the same OS user, so local
+requests carry no token and the plugin reads no credential file.
 
 When Hermes can't see that folder (a container, another machine), `control_url` points at a
 disko started with --control-tcp and the token comes from Hermes's secret store.
@@ -14,9 +15,11 @@ from pathlib import Path
 from urllib.parse import urlencode, urlparse
 
 TIMEOUT_S = 25.0
-SOCKET_NAME, TOKEN_NAME = "control.sock", "control.token"
-NOT_RUNNING = ("disko isn't running with control on. Launch it with disko_launch, or on the Mac: "
-               "`python -m live --control` (window) or `python -m live --headless --playlist FOLDER`.")
+SOCKET_NAME = "control.sock"
+NOT_RUNNING = ("disko isn't running. Launch it with disko_launch, or open disko on the Mac "
+               "(or run `python -m live --headless --playlist FOLDER`).")
+OLD_DISKO = ("this disko is an older version that still wants a token on its local socket; update disko "
+             "(the plugin doesn't read disko's token file)")
 
 _settings = lambda key, default=None: default  # replaced by register() with ctx.get_config
 
@@ -67,29 +70,32 @@ class _UnixConnection(http.client.HTTPConnection):
 def request(method: str, path: str, body: dict | None = None, timeout: float = TIMEOUT_S) -> dict:
     try:
         url = setting("control_url", "DISKO_CONTROL_URL")
+        headers = {}
         if url:
             token = _secret("DISKO_CONTROL_TOKEN")
             if not token:
-                return {"error": "a control URL is set but the control token isn't (plugin settings, "
-                                 "or DISKO_CONTROL_TOKEN)"}
+                return {"error": "a control URL is set but its token isn't (set Control token in the plugin's "
+                                 "settings, or DISKO_CONTROL_TOKEN)"}
+            headers["Authorization"] = f"Bearer {token}"
             u = urlparse(url)
             conn = http.client.HTTPConnection(u.hostname, u.port or 80, timeout=timeout)
         else:
             sock = folder() / SOCKET_NAME
             if not sock.exists():
                 return {"error": NOT_RUNNING, "running": False}
-            token = (folder() / TOKEN_NAME).read_text().strip()
-            conn = _UnixConnection(str(sock), timeout)
+            conn = _UnixConnection(str(sock), timeout)  # disko checks we're the same user; no token
         try:
             data = json.dumps(body).encode() if body is not None else None
-            headers = {"Authorization": f"Bearer {token}"}
             if data is not None:
                 headers["Content-Type"] = "application/json"
             conn.request(method, path, body=data, headers=headers)
             response = conn.getresponse()
-            payload = json.loads(response.read() or b"{}")
+            raw = response.read()
         finally:
             conn.close()
+        if response.status == 401 and not url:  # only an older disko wants a token locally
+            return {"error": OLD_DISKO}
+        payload = json.loads(raw or b"{}")
         if not isinstance(payload, dict):
             payload = {"result": payload}
         if response.status != 200 and "error" not in payload:

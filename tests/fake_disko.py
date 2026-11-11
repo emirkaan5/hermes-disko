@@ -1,6 +1,8 @@
-"""A stand-in for disko's control interface (live/control.py): same socket, token file, routes
-and status shape, with a set that changes state when told to. Also runs as `python -m live`
-inside a stub checkout, for the launcher tests."""
+"""A stand-in for disko's control interface (live/control.py): same socket, routes and status
+shape, with a set that changes state when told to. Like disko, the Unix socket takes no token (disko
+checks the peer is the same OS user) and no token file is written; TCP requires the bearer token.
+`legacy=True` imitates an older disko that still wanted a token on the socket. Also runs as
+`python -m live` inside a stub checkout, for the launcher tests."""
 import json
 import os
 import secrets
@@ -81,7 +83,8 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _serve(self, method):
         raw = self.rfile.read(int(self.headers.get("Content-Length") or 0))
-        if self.headers.get("Authorization") != f"Bearer {self.server.token}":
+        self.server.seen_auth.append(self.headers.get("Authorization"))
+        if self.server.needs_token and self.headers.get("Authorization") != f"Bearer {self.server.token}":
             code, payload = 401, {"error": "missing or wrong token"}
         else:
             url = urlparse(self.path)
@@ -107,7 +110,7 @@ class _UnixServer(socketserver.UnixStreamServer):
 
 
 class FakeDisko:
-    def __init__(self, folder, name="Friday", tcp=False):
+    def __init__(self, folder, name="Friday", tcp=False, legacy=False):
         self.folder = Path(folder)
         self.folder.mkdir(parents=True, exist_ok=True)
         self.token = secrets.token_urlsafe(16)
@@ -116,8 +119,9 @@ class FakeDisko:
             self.server = socketserver.TCPServer(("127.0.0.1", 0), _Handler)
         else:
             self.server = _UnixServer(str(self.folder / "control.sock"), _Handler)
-            (self.folder / "control.token").write_text(self.token)
-        self.server.token, self.server.set = self.token, self.set
+        self.server.token, self.server.set, self.server.needs_token = self.token, self.set, tcp or legacy
+        self.server.seen_auth = []  # the Authorization header of every request, for the tests
+        self.seen_auth = self.server.seen_auth
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
 
     @property
@@ -127,8 +131,16 @@ class FakeDisko:
     def close(self):
         self.server.shutdown()
         self.server.server_close()
-        for name in ("control.sock", "control.token"):
-            (self.folder / name).unlink(missing_ok=True)
+        (self.folder / "control.sock").unlink(missing_ok=True)
+
+
+def write_install(folder, root, python, version=1):
+    """disko's install record, as it writes it on every start."""
+    path = Path(folder) / "install.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"version": version, "root": str(root), "python": str(python)}))
+    path.chmod(0o600)
+    return path
 
 
 def main(argv):
@@ -137,6 +149,7 @@ def main(argv):
     if (folder / "broken").exists():
         print("indexing failed: no audio here", file=sys.stderr)
         return 1
+    write_install(os.environ["DISKO_CONTROL_DIR"], Path.cwd(), sys.executable)  # disko registers on every start
     disko = FakeDisko(os.environ["DISKO_CONTROL_DIR"], name=folder.name)
     done = threading.Event()
     signal.signal(signal.SIGTERM, lambda *a: done.set())

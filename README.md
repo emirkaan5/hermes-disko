@@ -29,8 +29,8 @@ hermes  Energy is on lift. Kev dropped the queued track and is picking a bigger 
 ## Requirements
 
 - macOS, with [disko](https://github.com/emirkaan5/disko) set up (its README covers the virtual
-  environments). disko needs its control interface: `python -m live --control` (with the window)
-  or `python -m live --headless --playlist FOLDER` (no window).
+  environments). The disko app serves the control interface by default; with no window, run
+  `python -m live --headless --playlist FOLDER`.
 - Hermes 0.21.5 or newer.
 - No Python dependencies: the plugin uses the standard library only.
 
@@ -41,27 +41,29 @@ hermes plugins install emirkaan5/hermes-disko
 hermes plugins enable disko
 ```
 
-To let Hermes open disko for you (`disko_launch`, `/disko launch`), tell the plugin where disko
-lives, in Hermes Desktop under Settings → Plugins → disko, or in `~/.hermes/config.yaml`:
+That's all. Open disko once on this Mac: it registers where it is installed, so Hermes can open
+it for you later (`disko_launch`, `/disko launch`) with no settings. Then check it: with disko
+open, run `hermes disko` or type `/disko` in a chat.
+
+Settings are optional, in Hermes Desktop under Settings → Plugins → disko, or in
+`~/.hermes/config.yaml`:
 
 ```yaml
 plugins:
   entries:
     disko:
       settings:
-        disko_dir: ~/Projects/disko
+        disko_dir: ~/Projects/disko   # only to override the disko that registered itself
 ```
-
-Then check it: start disko, and run `hermes disko` or type `/disko` in a chat.
 
 ### Settings
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `disko_dir` | (empty) | Your disko checkout. Needed only for launching. |
-| `disko_python` | `<disko_dir>/.venv-live/bin/python` | The Python that runs disko. |
+| `disko_dir` | (empty) | Optional override for launching: your disko checkout. Empty means the disko that registered itself when it was last opened. |
+| `disko_python` | (empty) | Optional override: the Python that runs disko. Empty means the one disko registered, or `<disko_dir>/.venv-live/bin/python` when `disko_dir` is set. |
 | `now_playing_context` | `true` | Add the now-playing line to messages while a set runs. |
-| `control_dir` | `~/.disko` | Where disko's control socket is. |
+| `control_dir` | `~/.disko` | Where disko's control socket and install record are. |
 | `control_url` | (empty) | `http://host:port` of a disko started with `--control-tcp`, for a Hermes in a container or on another machine. |
 | `control_token` (secret, `DISKO_CONTROL_TOKEN`) | (empty) | The token for `control_url`. Not used for a local disko. |
 
@@ -69,16 +71,18 @@ Then check it: start disko, and run `hermes disko` or type `/disko` in a chat.
 
 Everything the plugin does, so you can decide before installing:
 
-- **Local socket.** It talks to disko over disko's control socket, `~/.disko/control.sock`, and
-  reads `~/.disko/control.token`: a random token disko writes on every start for exactly this
-  purpose, and the only file outside its own data the plugin reads. Both are owner-only (0600 in
-  a 0700 folder).
+- **Local socket.** It talks to disko over disko's control socket, `~/.disko/control.sock`.
+  disko only answers a process running as the same macOS user, so no token is involved.
+- **One file read outside its own data.** `~/.disko/install.json`, which disko writes (0600) on
+  every start: the path of the disko folder and of the Python that runs it, so `disko_launch`
+  can find disko. It is not a credential. The plugin reads no token or credential file.
 - **No third-party network calls.** With `control_url` set, it makes HTTP requests to that
   address, which you chose, and nowhere else. That link is plain HTTP protected by the token;
   keep it on a network you trust.
 - **A background process, when you ask.** `disko_launch` and `/disko launch` start disko with a
-  fixed command, `<disko_python> -m live --headless --playlist <folder>` (`--control` with a
-  window), in `disko_dir`. No shell is used, and the folder must be an existing directory.
+  fixed command, `<python> -m live --headless --playlist <folder>` (`--control` with a
+  window), in the disko folder from `install.json` (or `disko_dir`/`disko_python` if you set
+  them). No shell is used, and the folder must be an existing directory.
   disko keeps running after Hermes exits, and writes its output to
   `~/.hermes/plugin-data/disko/disko.log`. `disko_quit` ends only a disko this plugin started.
   disko itself reads the music folder and saves its analysis in a `disko/` subfolder there.
@@ -86,8 +90,8 @@ Everything the plugin does, so you can decide before installing:
   agent to confirm with you first.
 - **Context.** While a set is running, the hook adds one line (track names, BPM, key, energy)
   to your message, which goes to your model provider with the rest of the conversation.
-- **Credentials.** None for a local disko. The remote token is read through Hermes's secret
-  store.
+- **Credentials.** None for a local disko. The remote token (`control_url` only) is read through
+  Hermes's secret store.
 - **No telemetry, no self-update, no bundled binaries.**
 
 ## Limits
