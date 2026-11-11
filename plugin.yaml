@@ -1,0 +1,53 @@
+name: disko
+version: 0.2.0
+manifest_version: 2
+description: "Run and steer a disko AI DJ set on your Mac from any Hermes chat: launch it on a music folder, start, change energy, re-pick, pause, stop, and always know what's playing."
+author: emirkaan5
+license: AGPL-3.0
+homepage: https://github.com/emirkaan5/hermes-disko
+tags: [music, dj, audio, macos, local]
+requires_hermes: ">=0.21.5"
+provides_tools:
+  - disko_status
+  - disko_find_tracks
+  - disko_start
+  - disko_set_energy
+  - disko_pick_again
+  - disko_pause
+  - disko_resume
+  - disko_stop
+  - disko_launch
+  - disko_quit
+provides_hooks:
+  - pre_llm_call
+config_schema:
+  disko_dir:
+    type: str
+    default: ""
+    label: disko folder
+    description: "Path to your disko checkout (the folder with live/). Needed only for disko_launch."
+  disko_python:
+    type: str
+    default: ""
+    label: disko Python
+    description: "Python that runs disko. Default: <disko folder>/.venv-live/bin/python."
+  now_playing_context:
+    type: bool
+    default: true
+    label: Tell the agent what's playing
+    description: "While a set is running, add one line (current track, next track, energy) to each message so the agent can answer about the music without a tool call."
+  control_dir:
+    type: str
+    default: ""
+    label: Control folder
+    description: "Folder holding disko's control socket. Default: ~/.disko."
+  control_url:
+    type: str
+    default: ""
+    label: Control URL (remote disko)
+    description: "http://host:port of a disko started with --control-tcp, when Hermes can't see the socket (container, another machine). Needs the control token below."
+  control_token:
+    type: secret
+    env: DISKO_CONTROL_TOKEN
+    label: Control token (remote disko)
+    description: "The token disko printed for --control-tcp. Not needed for a disko on the same machine."
