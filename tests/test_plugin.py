@@ -371,6 +371,8 @@ class LaunchTest(PluginCase):
         error = self.tool("disko_launch", spotify="liked")["error"]
         self.assertIn("Spotify audio is off", error)
         self.assertIn("Only the user can turn it on", error)
+        (self.music / "broken").touch()  # a later failure is reported as itself, not as the earlier one
+        self.assertIn("exited right away", self.tool("disko_launch", folder=str(self.music))["error"])
 
     def test_slash_launch_on_spotify(self):
         self.configure()

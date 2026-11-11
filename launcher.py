@@ -122,6 +122,7 @@ def launch(folder: str = "", window: bool = False, wait_s: float = WAIT_S, spoti
     log = _log_path()
     try:
         with open(log, "ab") as out:
+            start = out.tell()  # the log is shared across launches: read only what this one writes
             _started = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=out, stderr=out,
                                         start_new_session=True)
     except OSError as e:
@@ -129,7 +130,7 @@ def launch(folder: str = "", window: bool = False, wait_s: float = WAIT_S, spoti
     deadline = time.monotonic() + wait_s
     while time.monotonic() < deadline:
         if _started.poll() is not None:
-            tail = _tail(log)
+            tail = _tail(log, start)
             if SPOTIFY_AUDIO_OFF in tail:
                 return {"error": "Spotify audio is off in disko, so it can't play Spotify tracks. Only the "
                                  "user can turn it on, on the Mac: on the Spotify page of disko's welcome "
@@ -146,7 +147,7 @@ def launch(folder: str = "", window: bool = False, wait_s: float = WAIT_S, spoti
                      "a new folder is analysed first, about half a second per track")
     return {"launched": True, "ready": False, **opened, "window": window, "log": str(log),
             "note": f"disko is still getting ready ({getting_ready}). Check disko_status again shortly.",
-            "last_output": _tail(log)}
+            "last_output": _tail(log, start)}
 
 
 def quit() -> dict:
@@ -170,8 +171,12 @@ def quit() -> dict:
     return {"quit": True}
 
 
-def _tail(path: Path, lines: int = 6) -> str:
+def _tail(path: Path, start: int = 0, lines: int = 6) -> str:
+    """The last lines written to the log from byte `start` on."""
     try:
-        return "\n".join(path.read_text(errors="replace").splitlines()[-lines:])
+        with open(path, "rb") as f:
+            f.seek(start)
+            text = f.read().decode(errors="replace")
+        return "\n".join(text.splitlines()[-lines:])
     except OSError:
         return ""
