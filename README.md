@@ -16,6 +16,11 @@ you     people are arriving, bring it up
 hermes  Energy is on lift. Kev dropped the queued track and is picking a bigger one.
 ```
 
+![Hermes in a terminal on the left; disko on the right, mixing out of "Forget It" into Kev's pick, "My Darling (Suma Suma)", with a filter sweep](docs/screenshot.jpg)
+
+A real run: Hermes opened disko on a folder with `disko_launch`, started the set once you said
+so, and set the energy to lift; Kev is now mixing into its next pick.
+
 ## What it adds to Hermes
 
 | Surface | What you get |
