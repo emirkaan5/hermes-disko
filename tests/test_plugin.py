@@ -261,8 +261,8 @@ class LaunchTest(PluginCase):
         self.music.mkdir()
         os.environ["DISKO_CONTROL_DIR"] = str(self.folder)  # the launched disko inherits it
         self.addCleanup(os.environ.pop, "DISKO_CONTROL_DIR", None)
-        os.environ["FAKE_SPOTIFY_AUDIO"] = "on"
-        self.addCleanup(os.environ.pop, "FAKE_SPOTIFY_AUDIO", None)
+        os.environ["DISKO_FAKE_SPOTIFY_AUDIO"] = "on"
+        self.addCleanup(os.environ.pop, "DISKO_FAKE_SPOTIFY_AUDIO", None)
         self.addCleanup(launcher.quit)
 
     def configure(self):
@@ -367,7 +367,7 @@ class LaunchTest(PluginCase):
         self.configure()
         self.assertIn("not both", self.tool("disko_launch", folder=str(self.music), spotify="liked")["error"])
         self.assertIn("isn't a Spotify playlist", self.tool("disko_launch", spotify="my chill mix")["error"])
-        os.environ["FAKE_SPOTIFY_AUDIO"] = "off"
+        os.environ["DISKO_FAKE_SPOTIFY_AUDIO"] = "off"
         error = self.tool("disko_launch", spotify="liked")["error"]
         self.assertIn("Spotify audio is off", error)
         self.assertIn("Only the user can turn it on", error)
@@ -379,6 +379,33 @@ class LaunchTest(PluginCase):
         self.assertIn("Spotify liked", self.slash("launch --spotify liked"))
         self.assertIn("already running", self.slash("launch --spotify liked"))
         self.assertEqual(self.slash("quit"), "disko has quit.")
+
+    def test_environment_is_an_allowlist(self):
+        self.configure()
+        env = launcher.environment({
+            "PATH": "/usr/bin", "HOME": "/Users/dj", "LANG": "en_US.UTF-8", "LC_ALL": "C", "TMPDIR": "/tmp",
+            "KEV_URL": "http://127.0.0.1:8009", "HF_HOME": "/hf", "DISKO_BEATPORT_STREAMING": "1",
+            "OPENAI_API_KEY": "sk-1", "ANTHROPIC_API_KEY": "sk-2", "OPENROUTER_API_KEY": "sk-3", "GITHUB_TOKEN": "gh",
+            "AWS_SECRET_ACCESS_KEY": "aws", "DISKO_CONTROL_TOKEN": "tok", "DISKO_CONTROL_URL": "http://x",
+            "PYTHONPATH": "/hermes", "VIRTUAL_ENV": "/hermes/venv", "DISKO_CONTROL_DIR": "/elsewhere"})
+        self.assertEqual(env, {
+            "PATH": "/usr/bin", "HOME": "/Users/dj", "LANG": "en_US.UTF-8", "LC_ALL": "C", "TMPDIR": "/tmp",
+            "KEV_URL": "http://127.0.0.1:8009", "HF_HOME": "/hf", "DISKO_BEATPORT_STREAMING": "1",
+            "DISKO_CONTROL_DIR": str(self.folder)})  # where this plugin looks, whatever the environment says
+
+    def test_launched_disko_gets_no_api_keys(self):
+        self.configure()
+        secrets = {"OPENROUTER_API_KEY": "sk-or-test", "ANTHROPIC_API_KEY": "sk-ant-test", "DISKO_CONTROL_TOKEN": "t"}
+        for name, value in secrets.items():
+            os.environ[name] = value
+            self.addCleanup(os.environ.pop, name, None)
+        self.assertTrue(self.tool("disko_launch", folder=str(self.music)).get("launched"))
+        seen = json.loads((self.folder / "env.json").read_text())
+        for name, value in secrets.items():
+            self.assertNotIn(name, seen)
+            self.assertNotIn(value, seen.values())
+        self.assertEqual(seen["HOME"], os.environ["HOME"])
+        self.assertEqual(seen["DISKO_CONTROL_DIR"], str(self.folder))
 
     def test_quit_leaves_someone_elses_disko_alone(self):
         d = self.disko()

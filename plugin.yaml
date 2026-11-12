@@ -1,5 +1,5 @@
 name: disko
-version: 0.4.1
+version: 0.4.2
 manifest_version: 2
 description: "Run and steer a disko AI DJ set on your Mac from any Hermes chat: launch it on a music folder or a Spotify playlist, start, change energy, re-pick, pause, stop, and always know what's playing."
 author: emirkaan5

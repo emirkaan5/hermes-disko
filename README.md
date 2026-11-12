@@ -89,7 +89,11 @@ Everything the plugin does, so you can decide before installing:
   (`--control` with a window), in the disko folder from `install.json` (or
   `disko_dir`/`disko_python` if you set them). No shell is used. The folder must be an existing
   directory; the Spotify playlist must be `liked` or a Spotify playlist id (a link is reduced to
-  its id), so nothing else from the conversation reaches the command.
+  its id), so nothing else from the conversation reaches the command. disko gets a minimal
+  environment, not Hermes's (which holds your provider API keys): `PATH`, `HOME`, `USER`, `LOGNAME`,
+  `LANG`, `LC_*`, `TMPDIR`, and only the variables disko documents (`DISKO_*`, `KEV_URL`,
+  `KEV_RUN`, `HF_HOME`, `HF_HUB_CACHE`), without the plugin's own `DISKO_CONTROL_URL` and
+  `DISKO_CONTROL_TOKEN`.
   disko keeps running after Hermes exits, and writes its output to
   `~/.hermes/plugin-data/disko/disko.log`. `disko_quit` ends only a disko this plugin started.
   disko itself reads the music folder and saves its analysis in a `disko/` subfolder there.

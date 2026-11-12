@@ -1,7 +1,7 @@
 ---
 name: disko-dj
 description: Run and steer a disko AI DJ set on the user's Mac (launch, start, status, energy, pick again, pause, stop)
-version: 0.4.1
+version: 0.4.2
 license: AGPL-3.0
 platforms: [macos]
 metadata:
